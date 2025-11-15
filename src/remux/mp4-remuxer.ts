@@ -1020,14 +1020,17 @@ export default class MP4Remuxer extends Logger implements Remuxer {
           duration < MAX_SILENT_FRAME_DURATION &&
           alignedWithVideo
         ) {
-          let missing = Math.round(delta / inputSampleDuration);
-          // Adjust nextPts so that silent samples are aligned with media pts. This will prevent media samples from
-          // later being shifted if nextPts is based on timeOffset and delta is not a multiple of inputSampleDuration.
-          nextPts = pts - missing * inputSampleDuration;
-          while (nextPts < 0 && missing && inputSampleDuration) {
-            missing--;
-            nextPts += inputSampleDuration;
-          }
+          // The following `missing` value can have a maximum gap error margin of (samples_per_frame / 2) / samplerate.
+          // 1. If `missing * inputSampleDuration > delta`:
+          //    The error will be corrected in the subsequent stream by the logic above ("delta < -maxAudioFramesDrift * inputSampleDuration").
+          //
+          // 2. If `delta > missing * inputSampleDuration`:
+          //    We risk a sync drift of `delta` and append the frame contiguously to the previous one.
+          //    Currently, Chrome ignores gaps smaller than `inputSampleDuration` between frames and renders them contiguously,
+          //    which causes sync issues during long-term playback.
+          //    Each sample has an absolute PTS value, and the demuxed PTS is absolute, so an error of `delta - missing * inputSampleDuration` will not accumulate.
+          //    If the error does accumulate and the `delta` value increases, it will be corrected by the `Math.round()` value below.
+          const missing = Math.round(delta / inputSampleDuration);
           if (i === 0) {
             this.nextAudioTs = nextAudioTs = nextPts - initTime;
           }
